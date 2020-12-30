@@ -8,8 +8,9 @@
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/opencv.hpp>
-#include <opencv2/features2d.hpp>
+//#include <opencv2/features2d.hpp>
 #include <opencv2/xfeatures2d.hpp>
+#include <opencv2/core/base.hpp>
 #include "radar_utils.hpp"
 #include "features.hpp"
 #include <eigen3/Eigen/Core>
@@ -58,13 +59,24 @@ class FeatureTracker{
 public:
     FeatureTracker(vector<Eigen::Vector3d> _pcl):prePcl(_pcl){}
 
-    bool AddKeyPoints(std::vector<cv::KeyPoint>& _kp, const vector<Eigen::Vector3d> _pcl, int patch_size){
+    bool AddKeyPoints(std::vector<cv::KeyPoint>& _kp, const vector<Eigen::Vector3d> _pcl, int patch_size, bool scale = true){
         double u,v;
-        for(int i = 0; i < _pcl.size(); i++){
-            u = _pcl[i].x() * SCALE + WIDTH/2;
-            v = _pcl[i].y() * SCALE + HIGHT/2;
-            _kp.push_back(cv::KeyPoint(u,v,patch_size));
+        _kp.clear();
+        if(scale){
+            for(int i = 0; i < _pcl.size(); i++){
+                u = _pcl[i].x() * SCALE + WIDTH/2;
+                v = _pcl[i].y() * SCALE + HIGHT/2;
+                _kp.push_back(cv::KeyPoint(u,v,patch_size));
+            }
         }
+        else{
+            for(int i = 0; i < _pcl.size(); i++){
+                u = _pcl[i].x();
+                v = _pcl[i].y();
+                _kp.push_back(cv::KeyPoint(u,v,patch_size));
+            }
+        }
+
         return true;
     }
 
@@ -78,11 +90,27 @@ public:
             center = cv::Point(x, y);
             cv::circle(img, center, 2, cv::Scalar(0,255,255), cv::FILLED);
         }
+        cv::Mat img_tmp;
+        cv::cvtColor(img, img_tmp, cv::COLOR_BGR2GRAY);
+
         if(drawPoints){
-            cv::imshow("pcl_img", img);
+            cv::imshow("pcl_img", img_tmp);
             cv::waitKey(0);
         }
-        return img;
+
+        return img_tmp;
+    }
+
+    vector<Eigen::Vector3d> pointsCvt2RealPoints(std::vector<Eigen::Vector3d> _points){
+        Eigen::Vector3d p;
+        vector<Eigen::Vector3d> pcl;
+        for(int i = 0; i < _points.size(); i++){
+            p.x() = (_points[i].x() - WIDTH/2) / SCALE;
+            p.y() = (_points[i].y() - HIGHT/2) / SCALE;
+            p.z() = 0.;
+            pcl.push_back(p);
+        }
+        return pcl;
     }
 
 
@@ -133,32 +161,40 @@ public:
         int patch_size = 2;
         cv::Mat desc1, desc2;//descriptor
         std::vector<cv::KeyPoint> kp1, kp2;//key points
-        AddKeyPoints(kp1, pcl_1, patch_size);
-        AddKeyPoints(kp2, pcl_2, patch_size);
+        detector->detectAndCompute(img1, cv::Mat(), kp1, desc1);
+        detector->detectAndCompute(img2, cv::Mat(), kp2, desc2);
+//        AddKeyPoints(kp1, pcl_1, patch_size);
+//        AddKeyPoints(kp2, pcl_2, patch_size);
 
-        detector->setPatchSize(patch_size);
-        detector->setEdgeThreshold(patch_size);
+//        detector->setPatchSize(patch_size);
+//        detector->setEdgeThreshold(patch_size);
 
         detector->compute(img1, kp1, desc1);
         detector->compute(img2, kp2, desc2);
 
-        matcher->knnMatch(desc1, desc2, knn_matches, 1);
+        matcher.knnMatch(desc1, desc2, knn_matches, 1);
 
-        std::vector<cv::DMatch> good_matches;
+//        std::vector<cv::DMatch> good_matches;
         for (uint j = 0; j < knn_matches.size(); ++j) {
             if (!knn_matches[j].size())
                 continue;
-            if (knn_matches[j][0].distance == 0) {
+            if (knn_matches[j][0].distance < 0.5) {
                 good_matches.push_back(knn_matches[j][0]); // distance the smaller the better
             }
         }
 
-        vector<Eigen::Vector3d> pcl1_new, pcl2_new;
-        OutlierExeclusion(pcl_1, pcl_2, pcl1_new, pcl2_new, good_matches);
-        cout << "pcl_1 size is: " << pcl_1.size() << endl;
+        vector<Eigen::Vector3d> pcl1_new, pcl2_new, pcl_tmp1, pcl_tmp2;
+        for(int j = 0; j < kp1.size(); j++){
+            pcl_tmp1.emplace_back(kp1[j].pt.x, kp1[j].pt.y, 0.0);
+        }
+        for(int j = 0; j < kp2.size(); j++){
+            pcl_tmp2.emplace_back(kp2[j].pt.x, kp2[j].pt.y, 0.0);
+        }
+        OutlierExeclusion(pcl_tmp1, pcl_tmp2, pcl1_new, pcl2_new, good_matches);
+        cout << "kp_1 size is: " << kp1.size() << endl;
         cout << "pcl1_new size is: " << pcl1_new.size() << endl;
-        AddKeyPoints(kp1, pcl1_new, patch_size);
-        AddKeyPoints(kp2, pcl2_new, patch_size);
+        AddKeyPoints(kp1, pcl1_new, patch_size, false);
+        AddKeyPoints(kp2, pcl2_new, patch_size, false);
 
         cv::Mat img_match;
         try{
@@ -170,6 +206,8 @@ public:
             cout << "Standard exception: " << e.what() << endl;
         }
 
+        pcl1_new = pointsCvt2RealPoints(pcl1_new);
+        pcl2_new = pointsCvt2RealPoints(pcl2_new);// convert image keypoints to real world points
         // Convert the good key point matches to Eigen matrices
         Eigen::MatrixXd p1 = Eigen::MatrixXd::Zero(2, pcl1_new.size());
         Eigen::MatrixXd p2 = p1;
@@ -197,9 +235,10 @@ public:
         prePcl = _pcl;
         return true;
     }
-
-    cv::Ptr<cv::ORB> detector = cv::ORB::create();
-    cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create(cv::DescriptorMatcher::BRUTEFORCE_HAMMING);
+    int minHessian = 100;
+    cv::Ptr<cv::xfeatures2d::SURF> detector = cv::xfeatures2d::SURF::create(minHessian, 4, 3, true, true);
+//    cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create(cv::DescriptorMatcher::BRUTEFORCE_HAMMING);
+    cv::BFMatcher matcher = cv::BFMatcher();
     std::vector<std::vector<cv::DMatch>> knn_matches;
     vector<cv::DMatch> good_matches;
 

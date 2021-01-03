@@ -113,6 +113,18 @@ public:
         return pcl;
     }
 
+    vector<Eigen::Vector3d> RealPoints2Imgpoints(std::vector<cv::KeyPoint> _points){
+        Eigen::Vector3d p;
+        vector<Eigen::Vector3d> pcl;
+        for(int i = 0; i < _points.size(); i++){
+            p.x() = (int)(_points[i].pt.x*SCALE + WIDTH/2);
+            p.y() = (int)(_points[i].pt.y*SCALE + HIGHT/2);
+            p.z() = 0.;
+            pcl.push_back(p);
+        }
+        return pcl;
+    }
+
 
     void OutlierExeclusion(const vector<Eigen::Vector3d> _pcl1, const vector<Eigen::Vector3d> _pcl2,
                            vector<Eigen::Vector3d> &_pcl1_new, vector<Eigen::Vector3d> &_pcl2_new,
@@ -129,7 +141,7 @@ public:
             pcl2.push_back(p2);
         }
         cv::Mat mask;
-        cv::findHomography(pcl1, pcl2, mask,cv::RANSAC, 0.01);
+        cv::findHomography(pcl1, pcl2, mask,cv::RANSAC, 2.0);
 //        vector<cv::Point2f> pcl1_new, pcl2_new;
 
         int j = 0;
@@ -144,6 +156,39 @@ public:
             }
         }
         matches = good_matches;
+    }
+
+    bool myDescriptor(cv::Mat image, cv::Mat &descriptors, vector<cv::KeyPoint> keypoints){
+        int max_range = 300;
+        uint range;
+        cv::Mat desc = cv::Mat::zeros(keypoints.size(), max_range, CV_32F);
+        vector<Eigen::Vector2i> imgKeyPoints;
+//        imgKeyPoints = RealPoints2Imgpoints(keypoints);
+        for(auto kp:keypoints){
+            Eigen::Vector2i p;
+            p.x() = kp.pt.x;
+            p.y() = kp.pt.y;
+            imgKeyPoints.push_back(p);
+        }
+        for(uint i = 0; i < image.rows; i++){
+            for(uint j = 0; j < image.cols; j++){
+                if(image.at<uchar>(i,j) != 0){
+                    for(uint k = 0; k < keypoints.size(); k++){
+                        range = sqrt(pow(i-imgKeyPoints[k].y(), 2) + pow(j-imgKeyPoints[k].x(), 2));
+                        if(range > max_range)
+                            continue;
+                        else{
+                            desc.at<float>(k, range)++;
+                        }
+                    }
+                }
+            }
+        }
+        for(uint i = 0; i < keypoints.size(); i++){
+            cv::normalize(desc.row(i), desc.row(i), 0, 1, cv::NORM_MINMAX);
+        }
+        desc.copyTo(descriptors);
+        return true;
     }
 
 
@@ -161,16 +206,19 @@ public:
         int patch_size = 2;
         cv::Mat desc1, desc2;//descriptor
         std::vector<cv::KeyPoint> kp1, kp2;//key points
-        detector->detectAndCompute(img1, cv::Mat(), kp1, desc1);
-        detector->detectAndCompute(img2, cv::Mat(), kp2, desc2);
-//        AddKeyPoints(kp1, pcl_1, patch_size);
-//        AddKeyPoints(kp2, pcl_2, patch_size);
+        AddKeyPoints(kp1, pcl_1, patch_size);
+        AddKeyPoints(kp2, pcl_2, patch_size);
+        myDescriptor(img1, desc1, kp1);
+        myDescriptor(img2, desc2, kp2);
+//        detector->detectAndCompute(img1, cv::Mat(), kp1, desc1);
+//        detector->detectAndCompute(img2, cv::Mat(), kp2, desc2);
+
 
 //        detector->setPatchSize(patch_size);
 //        detector->setEdgeThreshold(patch_size);
 
-        detector->compute(img1, kp1, desc1);
-        detector->compute(img2, kp2, desc2);
+//        detector->compute(img1, kp1, desc1);
+//        detector->compute(img2, kp2, desc2);
 
         matcher.knnMatch(desc1, desc2, knn_matches, 1);
 
@@ -178,7 +226,7 @@ public:
         for (uint j = 0; j < knn_matches.size(); ++j) {
             if (!knn_matches[j].size())
                 continue;
-            if (knn_matches[j][0].distance < 0.5) {
+            if (knn_matches[j][0].distance < 3.0) {
                 good_matches.push_back(knn_matches[j][0]); // distance the smaller the better
             }
         }
@@ -233,6 +281,8 @@ public:
 
         //update featureVec
         prePcl = _pcl;
+        good_matches.clear();
+        knn_matches.clear();
         return true;
     }
     int minHessian = 100;
@@ -253,7 +303,7 @@ public:
 
 
 int main(int argc, char** argv){
-    std::string datadir = "/home/gao/Dopper_radar/catkin_ws/src/beginner_tutorial/data/";
+    std::string datadir = "/home/gao/Dopper_radar/catkin_ws/src/beginner_tutorial/data/pcl/";
     std::string seq = "pcl_";
     std::vector<std::string> radar_files;
     string radar_path0 = datadir + seq + "0" + ".csv";

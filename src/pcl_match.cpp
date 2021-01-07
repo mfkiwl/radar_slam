@@ -22,7 +22,11 @@
 
 #define HIGHT 640
 #define WIDTH 960
-#define SCALE 2.0
+#define SCALE 3.0
+
+#define MAX_RANGE 600
+#define AZIMUTH_RANGE 360
+#define OUTLIER_THRESHOLD 5.0
 
 #define FILE_NUM 40
 
@@ -144,7 +148,7 @@ public:
             pcl2.push_back(p2);
         }
         cv::Mat mask;
-        cv::findHomography(pcl1, pcl2, mask,cv::RANSAC, 5.0);
+        cv::findHomography(pcl1, pcl2, mask,cv::RANSAC, OUTLIER_THRESHOLD);
 //        vector<cv::Point2f> pcl1_new, pcl2_new;
 
         int j = 0;
@@ -163,9 +167,9 @@ public:
 
     bool myDescriptor(cv::Mat image, cv::Mat &descriptors, vector<cv::KeyPoint> keypoints){
 
-        uint M = 360;
+        uint M = AZIMUTH_RANGE;
         float azimuth_step = (2 * M_PI) / float(M);
-        uint max_range = 300;
+        uint max_range = MAX_RANGE;
         uint range;
         float azimuth;
         cv::Mat desc1 = cv::Mat::zeros(keypoints.size(), max_range, CV_32F);
@@ -182,17 +186,18 @@ public:
             for(uint j = 0; j < image.cols; j++){
                 if(image.at<uchar>(i,j) != 0){
                     for(uint k = 0; k < keypoints.size(); k++){
+
+                        azimuth = atan2f(i - imgKeyPoints[k].y(), j - imgKeyPoints[k].x());
+                        if(azimuth < 0)
+                            azimuth += 2 * M_PI;
+                        desc2.at<float>(k, azimuth/azimuth_step)++;
+
                         range = sqrt(pow(i-imgKeyPoints[k].y(), 2) + pow(j-imgKeyPoints[k].x(), 2));
                         if(range > max_range)
                             continue;
                         else{
                             desc1.at<float>(k, range)++;
                         }
-
-                        azimuth = atan2f(i - imgKeyPoints[k].y(), j - imgKeyPoints[k].x());
-                        if(azimuth < 0)
-                            azimuth += 2 * M_PI;
-                        desc2.at<float>(k, azimuth/azimuth_step)++;
                     }
                 }
             }
@@ -219,6 +224,9 @@ public:
         }
 
         cv::hconcat(desc1, desc2, descriptors);
+//        for(uint i = 0; i < keypoints.size(); i++){
+//            cv::normalize(descriptors.row(i), descriptors.row(i), 0, 1, cv::NORM_MINMAX);
+//        }
 
 //        desc1.copyTo(descriptors);
 //        desc2.copyTo(descriptors);
@@ -260,7 +268,7 @@ public:
         for (uint j = 0; j < knn_matches.size(); ++j) {
             if (!knn_matches[j].size())
                 continue;
-            if (knn_matches[j][0].distance < 10.0){
+            if (knn_matches[j][0].distance < OUTLIER_THRESHOLD){
                 good_matches.push_back(knn_matches[j][0]); // distance the smaller the better
             }
         }
@@ -333,7 +341,7 @@ public:
     vector<cv::DMatch> good_matches;
 
     //ransac parameters
-    double ransac_threshold = 2.0;
+    double ransac_threshold = 1.0;
     double inlier_ratio = 0.80;
     int max_iterations = 1000;
 

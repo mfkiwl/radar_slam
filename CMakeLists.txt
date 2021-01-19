@@ -107,42 +107,42 @@ target_link_libraries(odometry
 	${OpenCV_LIBRARIES}
 )
 
-add_executable(odometry_node src/odometry_ros.cpp)
-target_link_libraries(odometry_node
-		features
-		radar_utils
-		association
-		${catkin_LIBRARIES}
-		${OpenCV_LIBRARIES}
-		)
+#add_executable(odometry_node src/odometry_ros.cpp)
+#target_link_libraries(odometry_node
+#		features
+#		radar_utils
+#		association
+#		${catkin_LIBRARIES}
+#		${OpenCV_LIBRARIES}
+#		)
 
-add_executable(pcl_match src/pcl_match.cpp)
-target_link_libraries(pcl_match
-		features
-		radar_utils
-		association
-		${catkin_LIBRARIES}
-		${OpenCV_LIBRARIES}
-		teaser
-#		teaser_lib
-		)
+#add_executable(pcl_match src/pcl_match.cpp)
+#target_link_libraries(pcl_match
+#		features
+#		radar_utils
+#		association
+#		${catkin_LIBRARIES}
+#		${OpenCV_LIBRARIES}
+#		teaser
+##		teaser_lib
+#		)
 
-add_executable(mytest src/test.cpp)
-target_link_libraries(mytest
-		features
-		radar_utils
-		association
-		${catkin_LIBRARIES}
-		${OpenCV_LIBRARIES}
-		)
+#add_executable(mytest src/test.cpp)
+#target_link_libraries(mytest
+#		features
+#		radar_utils
+#		association
+#		${catkin_LIBRARIES}
+#		${OpenCV_LIBRARIES}
+#		)
 
-add_executable(raw_match src/raw_match.cpp)
-target_link_libraries(raw_match
-		features
-		radar_utils
-		association
-		${OpenCV_LIBRARIES}
-		)
+#add_executable(raw_match src/raw_match.cpp)
+#target_link_libraries(raw_match
+#		features
+#		radar_utils
+#		association
+#		${OpenCV_LIBRARIES}
+#		)
 
 add_library(matplotlibcpp INTERFACE)
 target_include_directories(matplotlibcpp INTERFACE include)

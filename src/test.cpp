@@ -18,30 +18,15 @@
 #include <time.h>
 #include <stdlib.h>
 #include "association.hpp"
-#include "teaser/registration.h"
 //#include <opencv2/imgproc.hpp>
-
-// Macro constants for generating noise and outliers
-#define NOISE_BOUND 0.05
-//#define N_OUTLIERS 1700
 
 #define HIGHT 640
 #define WIDTH 960
-#define SCALE 3.0
+#define SCALE 2.0
 
-#define MAX_RANGE 600
-#define AZIMUTH_RANGE 360
-#define OUTLIER_THRESHOLD 5.0
-
-#define FILE_NUM 40
+#define FILE_NUM 30
 
 using namespace std;
-
-
-// Run TEASER++ registration
-// Prepare solver parameters
-teaser::RobustRegistrationSolver::Params params;
-
 
 
 struct Feature{
@@ -72,9 +57,7 @@ vector<Eigen::Vector3d> read_csv(string path){
 
 class FeatureTracker{
 public:
-    FeatureTracker(vector<Eigen::Vector3d> _pcl):prePcl(_pcl){
-        trace.push_back(Eigen::Vector3d(0,0,0));
-    }
+    FeatureTracker(vector<Eigen::Vector3d> _pcl):prePcl(_pcl){}
 
     bool AddKeyPoints(std::vector<cv::KeyPoint>& _kp, const vector<Eigen::Vector3d> _pcl, int patch_size, bool scale = true){
         double u,v;
@@ -108,7 +91,6 @@ public:
             cv::circle(img, center, 2, cv::Scalar(0,255,255), cv::FILLED);
         }
         cv::Mat img_tmp;
-        cv::circle(img, cv::Point2f(0,0), 10, cv::Scalar(0,255,255), cv::FILLED);
         cv::cvtColor(img, img_tmp, cv::COLOR_BGR2GRAY);
 
         if(drawPoints){
@@ -159,7 +141,7 @@ public:
             pcl2.push_back(p2);
         }
         cv::Mat mask;
-        cv::findHomography(pcl1, pcl2, mask,cv::RANSAC, OUTLIER_THRESHOLD);
+        cv::findHomography(pcl1, pcl2, mask,cv::RANSAC, 3.0);
 //        vector<cv::Point2f> pcl1_new, pcl2_new;
 
         int j = 0;
@@ -177,16 +159,11 @@ public:
     }
 
     bool myDescriptor(cv::Mat image, cv::Mat &descriptors, vector<cv::KeyPoint> keypoints){
-
-        uint M = AZIMUTH_RANGE;
-        float azimuth_step = (2 * M_PI) / float(M);
-        uint max_range = MAX_RANGE;
+        int max_range = 400;
         uint range;
-        float azimuth;
-        cv::Mat desc1 = cv::Mat::zeros(keypoints.size(), max_range, CV_32F);
-        cv::Mat desc2 = cv::Mat::zeros(keypoints.size(), M, CV_32F);
+        cv::Mat desc = cv::Mat::zeros(keypoints.size(), max_range, CV_32F);
         vector<Eigen::Vector2i> imgKeyPoints;
-
+//        imgKeyPoints = RealPoints2Imgpoints(keypoints);
         for(auto kp:keypoints){
             Eigen::Vector2i p;
             p.x() = kp.pt.x;
@@ -197,50 +174,20 @@ public:
             for(uint j = 0; j < image.cols; j++){
                 if(image.at<uchar>(i,j) != 0){
                     for(uint k = 0; k < keypoints.size(); k++){
-
-                        azimuth = atan2f(i - imgKeyPoints[k].y(), j - imgKeyPoints[k].x());
-                        if(azimuth < 0)
-                            azimuth += 2 * M_PI;
-                        desc2.at<float>(k, azimuth/azimuth_step)++;
-
                         range = sqrt(pow(i-imgKeyPoints[k].y(), 2) + pow(j-imgKeyPoints[k].x(), 2));
                         if(range > max_range)
                             continue;
                         else{
-                            desc1.at<float>(k, range)++;
+                            desc.at<float>(k, range)++;
                         }
                     }
                 }
             }
         }
         for(uint i = 0; i < keypoints.size(); i++){
-            cv::normalize(desc1.row(i), desc1.row(i), 0, 1, cv::NORM_MINMAX);
+            cv::normalize(desc.row(i), desc.row(i), 0, 1, cv::NORM_MINMAX);
         }
-
-        for(uint i = 0; i < keypoints.size(); i++){
-            int max_index = 0;
-            for(int j = 0; j < M; j++) {
-                if (desc2.at<float>(i, j) > desc2.at<float>(i, max_index)){
-//                    cout << desc2.at<float>(i, j) << " " << desc2.at<float>(i, max_index) << "\n";
-                    max_index = j;
-                }
-            }
-            if(max_index != 0){
-                cv::Mat tmp;
-                desc2.row(i).colRange(0,max_index).copyTo(tmp);
-                desc2.row(i).colRange(max_index, M).copyTo(desc2.row(i).colRange(0, M - max_index));
-                tmp.copyTo(desc2.row(i).colRange(M - max_index, M));
-            }
-            cv::normalize(desc2.row(i), desc2.row(i), 0, 1, cv::NORM_MINMAX);
-        }
-
-        cv::hconcat(desc1, desc2, descriptors);
-//        for(uint i = 0; i < keypoints.size(); i++){
-//            cv::normalize(descriptors.row(i), descriptors.row(i), 0, 1, cv::NORM_MINMAX);
-//        }
-
-//        desc1.copyTo(descriptors);
-//        desc2.copyTo(descriptors);
+        desc.copyTo(descriptors);
         return true;
     }
 
@@ -279,17 +226,16 @@ public:
         for (uint j = 0; j < knn_matches.size(); ++j) {
             if (!knn_matches[j].size())
                 continue;
-            if (knn_matches[j][0].distance < OUTLIER_THRESHOLD){
+            if (knn_matches[j][0].distance < 3.0) {
                 good_matches.push_back(knn_matches[j][0]); // distance the smaller the better
             }
         }
 
-
         vector<Eigen::Vector3d> pcl1_new, pcl2_new, pcl_tmp1, pcl_tmp2;
-        for(uint j = 0; j < kp1.size(); j++){
+        for(int j = 0; j < kp1.size(); j++){
             pcl_tmp1.emplace_back(kp1[j].pt.x, kp1[j].pt.y, 0.0);
         }
-        for(uint j = 0; j < kp2.size(); j++){
+        for(int j = 0; j < kp2.size(); j++){
             pcl_tmp2.emplace_back(kp2[j].pt.x, kp2[j].pt.y, 0.0);
         }
         OutlierExeclusion(pcl_tmp1, pcl_tmp2, pcl1_new, pcl2_new, good_matches);
@@ -298,6 +244,15 @@ public:
         AddKeyPoints(kp1, pcl1_new, patch_size, false);
         AddKeyPoints(kp2, pcl2_new, patch_size, false);
 
+        cv::Mat img_match;
+        try{
+            cv::drawMatches(img1, kp1, img2, kp2, good_matches, img_match);
+            cv::imshow("match_img", img_match);
+            cv::waitKey(0);
+        }
+        catch (exception &e){
+            cout << "Standard exception: " << e.what() << endl;
+        }
 
         pcl1_new = pointsCvt2RealPoints(pcl1_new);
         pcl2_new = pointsCvt2RealPoints(pcl2_new);// convert image keypoints to real world points
@@ -317,44 +272,12 @@ public:
             p2(1,j) = pcl2_new[j].y();
         }
 
-        Eigen::Matrix<double, 3, Eigen::Dynamic> src, tgt;
-
-        for(int i = 0; i < pcl1_new.size(); i++){
-            src.col(i) << pcl1_new[i].x(), pcl1_new[i].y(), pcl1_new[i].z();
-        }
-        for(int i = 0; i < pcl2_new.size(); i++){
-            tgt.col(i) << pcl2_new[i].x(), pcl2_new[i].y(), pcl2_new[i].z();
-        }
-
-        // Teaser Solver
-        teaser::RobustRegistrationSolver solver(params);
-        solver.solve(src, tgt);
-        auto solution = solver.getSolution();
-        std::cout << "Estimated rotation: " << std::endl;
-        std::cout << solution.rotation << std::endl;
-        std::cout << "Estimated translation: " << std::endl;
-        std::cout << solution.translation << std::endl;
-
-//        Ransac ransac(p2, p1, ransac_threshold, inlier_ratio, max_iterations);
-//        srand(time(NULL));
-//        ransac.computeModel();
-//        Eigen::MatrixXd T;  // T_1_2
-//        ransac.getTransform(T);
-//        cout << to_string(frameNum) + ":" << "\n" << T << "\n" << endl;
-
-        cv::Mat img_match;
-        try{
-            cv::drawMatches(img1, kp1, img2, kp2, good_matches, img_match);
-            cv::imshow("match_img", img_match);
-            cv::waitKey(0);
-        }
-        catch (exception &e){
-            cout << "Standard exception: " << e.what() << endl;
-        }
-
-        //record results
-//        float yaw = -1 * asin(T(0, 1));
-//        trace.emplace_back(T(0,2), T(1,2), yaw);
+        Ransac ransac(p2, p1, ransac_threshold, inlier_ratio, max_iterations);
+        srand(time(NULL));
+        ransac.computeModel();
+        Eigen::MatrixXd T;  // T_1_2
+        ransac.getTransform(T);
+        cout << to_string(frameNum) + ":" << "\n" << T << "\n" << endl;
 
         //update featureVec
         prePcl = _pcl;
@@ -362,7 +285,7 @@ public:
         knn_matches.clear();
         return true;
     }
-    int minHessian = 150;
+    int minHessian = 100;
     cv::Ptr<cv::xfeatures2d::SURF> detector = cv::xfeatures2d::SURF::create(minHessian, 4, 3, true, true);
 //    cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create(cv::DescriptorMatcher::BRUTEFORCE_HAMMING);
     cv::BFMatcher matcher = cv::BFMatcher();
@@ -371,14 +294,11 @@ public:
 
     //ransac parameters
     double ransac_threshold = 1.0;
-    double inlier_ratio = 0.80;
-    int max_iterations = 1000;
+    double inlier_ratio = 0.50;
+    int max_iterations = 2000;
 
     int frameNum = 0;
     vector<Eigen::Vector3d> prePcl;
-    vector<Eigen::Vector3d> trace;
-
-
 };
 
 
@@ -388,31 +308,13 @@ int main(int argc, char** argv){
     std::vector<std::string> radar_files;
     string radar_path0 = datadir + seq + "0" + ".csv";
 //    string radar_path1 = datadir + seq + "1" + ".csv";
-    ofstream ofs;
-
-    params.noise_bound = NOISE_BOUND;
-    params.cbar2 = 1;
-    params.estimate_scaling = false;
-    params.rotation_max_iterations = 100;
-    params.rotation_gnc_factor = 1.4;
-    params.rotation_estimation_algorithm =
-            teaser::RobustRegistrationSolver::ROTATION_ESTIMATION_ALGORITHM::GNC_TLS;
-    params.rotation_cost_threshold = 0.005;
-
-    // Solve with TEASER++
-//    teaser::RobustRegistrationSolver solver(params);
-//    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-//    solver.solve(src, tgt);
-//    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-
-//    auto solution = solver.getSolution();
 
     vector<Eigen::Vector3d> pcl_0;
     pcl_0 = read_csv(radar_path0);
 
     FeatureTracker featureTracker(pcl_0);
 
-    for(int i=1; i < FILE_NUM; i++){
+    for(int i=1; i <= FILE_NUM; i++){
         string path = datadir + seq + to_string(i) + ".csv";
         vector<Eigen::Vector3d> pcl;
         pcl = read_csv(path);
@@ -421,14 +323,5 @@ int main(int argc, char** argv){
             break;
         }
     }
-
-//    ofs.open("/home/gao/Dopper_radar/catkin_ws/src/beginner_tutorial/data/scene8/results/results.csv", std::ios::out);
-//    ofs << "x" << "," << "y" << "," << "yaw"  << "\n";
-//    for(int i = 0; i < featureTracker.trace.size(); i++){
-//        ofs << featureTracker.trace[i].x() << ","
-//            << featureTracker.trace[i].y() << ","
-//            << featureTracker.trace[i].z() << "\n";
-//    }
-
     return 0;
 }

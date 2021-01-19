@@ -241,7 +241,7 @@ double Ransac::computeModel() {
         if (double(inliers.size()) / double(p1.cols()) > inlier_ratio)
             break;
     }
-    std::cout << "iteration time is:" << i << std::endl;
+//    std::cout << "iteration time is:" << i << std::endl;
     // Refine transformation using the inlier set
     Eigen::MatrixXd p1small, p2small;
     p1small = Eigen::MatrixXd::Zero(dim, best_inliers.size());
